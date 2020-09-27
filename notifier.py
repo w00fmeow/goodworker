@@ -10,12 +10,12 @@ class Notifier(object):
         self.chat_id = chat_id
         self.base_url = "https://api.telegram.org/bot{0}/sendMessage".format(token)
 
-    def send_message(self, message=None, action='start', active_time=None):
+    def send_message(self, message=None, action='start', session=None):
         logging.debug("message: {}, action: {}".format(message, action))
         if not message:
             if not action:
                 action = 'start'
-            message = self.get_message(action=action, active_time=active_time)
+            message = self.get_message(action=action, session=session)
         data = {}
         data["text"] = message
         data["chat_id"] = self.chat_id
@@ -25,13 +25,14 @@ class Notifier(object):
         except Exception as e:
             logging.error(e)
 
-    def get_message(self, action, active_time=None):
+    def get_message(self, action, session=None):
         s = 'Good worker'
         if action == 'start':
             s += ' started'
         elif action == 'stop':
             s += ' stopped'
         s += ' session.'
-        if active_time:
-            s += ' Session was active {}'.format(active_time)
+        if session:
+            s += '\nSession was active {}'.format(session["active_time"])
+            s += '\nTotal clicks: {}\n Srolls: {}\n{} characters typed'.format(session["clicks"], session["scrolls"], session["typed"])
         return s

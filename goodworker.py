@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import logging, os, sys, keyboard, pyautogui, json, time, random, threading, requests
+import logging, os, sys, keyboard, pyautogui, json, time, random, threading, requests, re
 from datetime import datetime, timedelta
 from notifier import Notifier
 from bs4 import BeautifulSoup
@@ -21,27 +21,32 @@ class GoodWorker(object):
 
     ACTIONS_TIME_SLEEP_RANGE = (1, 30)
 
-    TREE_LIST_GITHUB = (By.XPATH, "//div[contains(@class, 'repository-content')]/fuzzy-list")
+    FILE_LIST_GITHUB = (By.CSS_SELECTOR, '.d-inline-block.js-tree-browser-result-path')
     # TREE_LIST_GITHUB = (By.XPATH, '.js-tree-finder')
 
     def __init__(self):
 
-        # options = Options()
-        # options.headless = False
-        # self.browser = webdriver.Firefox(options=options)
-        # self.browser.implicitly_wait(10)
+        options = Options()
+        options.headless = True
+        self.browser = webdriver.Firefox(options=options)
+        self.browser.implicitly_wait(10)
 
         self._running = True
         self.active = False
+        self._typing = False
+
         self.config = self.load_config()
         self.emojies = self.load_emojies()
-        self.code_archive = self.load_code()
-        # self.browser.quit()
+        self.code_archive = self.load_backup_code()
+
         self.notifier = Notifier(chat_id=self.config["telegram"]["chat_id"], token=self.config["telegram"]["token"])
         self.session = None
         self.threads = []
 
         t = threading.Thread(target=self.run)
+        self.threads.append(t)
+
+        t = threading.Thread(target=self.load_code)
         self.threads.append(t)
 
         for t in self.threads:
@@ -54,13 +59,16 @@ class GoodWorker(object):
                 assert c
                 assert "telegram" in c
                 assert "projects" in c
+                assert "file_types" in c
                 assert c["telegram"]
+                assert c["file_types"]
                 assert c["projects"]
                 assert "chat_id" in c["telegram"]
                 assert "token" in c["telegram"]
                 return c
         except Exception as e:
             logging.error("There was an error loading config file")
+            self.browser.quit()
             sys.exit()
 
     def load_emojies(self):
@@ -75,28 +83,42 @@ class GoodWorker(object):
             logging.error(e)
             return backup
 
-    def load_code(self):
+    def load_backup_code(self):
+        try:
+            with open('backup_code', 'r') as f:
+                return [f.read()]
+        except Exception as e:
+            logging.error(e)
+            return []
 
-        list_of_files = self.get_project_files(self.config["projects"][0])
-        if list_of_files:
-            for file in list_of_files:
-                self.code_archive.append(self.load_file(project=project, file_name=file))
-        # for project in self.config["projects"]:
-        #     list_of_files = self.get_project_files(project)
-        #     if list_of_files:
-        #         for file in list_of_files:
-        #             self.code_archive.append(self.load_file(project=project, file_name=file))
+    def load_code(self):
+        for project in self.config["projects"]:
+            list_of_files = self.get_project_files(project)
+            if list_of_files:
+                for file in list_of_files:
+                    raw_file = self.load_raw_file(project=project, file_name=file)
+                    if raw_file:
+                        self.code_archive.append(raw_file)
 
     def get_project_files(self, project):
+        l = []
         base_url = 'https://github.com'
+        self.browser.get(base_url + "/" + project + '/find/master')
+        files = self.browser.find_elements(*self.FILE_LIST_GITHUB)
+        for file in files:
+            for file_type in self.config["file_types"]:
+                pat = re.compile(".*\."+file_type)
+                # logging.debug(file)
+                # logging.debug(pat)
+                if re.match(pat, file.text):
+                    l.append(file.text)
+        return l
 
-        r = requests.get(base_url + "/" + project + '/find/master')
+    def load_raw_file(self, project, file_name):
+        url = "https://raw.githubusercontent.com/{}/master/{}".format(project, file_name)
+        r = requests.get(url)
         if r.status_code == 200:
-            soup = self.make_soup(r.text)
-            data_url = soup.select_one('fuzzy-list[data-url]')["data-url"]
-            r = requests.get(base_url + data_url)
-            if r.status_code == 200:
-                logging.debug(r.content)
+            return r.text
 
     def make_soup(self, html):
         return BeautifulSoup(html,'html.parser')
@@ -115,20 +137,60 @@ class GoodWorker(object):
                 self.session["stopped_at"] = datetime.now()
                 logging.debug(self.session)
                 self.session["active_time"] = self.calculate_active_time(start=self.session["started_at"], stop=self.session["stopped_at"])
-                self.notifier.send_message(action='stop', active_time=self.session["active_time"])
+                self.notifier.send_message(action='stop', session=self.session)
 
     def get_empty_session(self):
         return {
             "started_at": datetime.now(),
             "stopped_at": None,
-            "active_time": None
+            "active_time": None,
+            "typed": 0,
+            "clicks": 0,
+            "scrolls": 0
         }
 
     def calculate_active_time(self, start, stop):
-        total_sec = (stop - start).total_seconds()
-        return str(total_sec) + ' seconds'
+        total_sec = int((stop - start).total_seconds())
+        # one second
+        if total_sec == 1:
+            s = '1 seconds'
+
+        # multiple seconds
+        elif 1 < total_sec < 60:
+            s = str(total_sec) + ' seconds'
+
+        # one minute
+        elif total_sec == 60:
+            s = '1 minute'
+
+        # multiple minutes
+        elif 60 < total_sec < 60*60:
+            s = str(total_sec) + ' minutes'
+
+        # one hour
+        elif total_sec == 60*60:
+            s = '1 hour'
+        # multiple hours
+        elif 60*60 < total_sec < 60*60*24:
+            s = str(total_sec) + ' hours'
+        # one day
+        elif total_sec == 60*60*24:
+            s = '1 day'
+        # multiple days
+        elif 60*60*24 < total_sec:
+            s = str(total_sec) + ' days'
+            
+        return s
 
     def run(self):
+        print("""\
+
+____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
+| __ |  | |  | |  \ | | | |  | |__/ |_/  |___ |__/
+|__] |__| |__| |__/ |_|_| |__| |  \ | \_ |___ |  \
+
+
+        """)
         self.notifier.send_message("GoodWorker is working hard")
         time.sleep(0.7)
         self.notifier.send_message("To activate or terminate session press {} at the same time".format(self.HOTKEY_STATUS_CHANGE))
@@ -144,26 +206,33 @@ class GoodWorker(object):
         self.notifier.send_message("GoodWorker terminated")
         self.notifier.send_message("Bye\n{}".format(random.choice(self.emojies)))
         self._running = False
+        self.browser.quit()
         sys.exit()
 
     def send_keys(self, message):
-        keyboard.write(message)
+        try:
+            keyboard.write(message)
+            self.session["typed"] += len(message)
+        except Exception as e:
+            pass
 
     def get_random_code(self, max_length):
-        s = "some code"
-        return s[:max_length]
+        return random.choice(self.code_archive)[:max_length]
 
     def type_code(self):
         logging.info("Typing some code")
+        self._typing = True
         s = self.get_random_code(max_length=random.randint(5,450))
         keyboard.press_and_release('escape')
         for char in s:
             self.send_keys(char)
             time.sleep(random.uniform(0.0067, 0.6))
+        self._typing = False
 
     def scroll(self):
         logging.info("Scrolling")
         pyautogui.scroll(random.randint(-50,50), x=random.randint(1, self.SCREEN_WIDTH), y=random.randint(1, self.SCREEN_HEIGHT))
+        self.session["scrolls"] += 1
 
     def click(self):
         logging.info("Clicking")
@@ -174,6 +243,7 @@ class GoodWorker(object):
             logging.debug("Right click")
             button = 'right'
         pyautogui.click(x=random.randint(1, self.SCREEN_WIDTH), y=random.randint(1, self.SCREEN_HEIGHT), clicks=random.randint(1,3), interval=random.uniform(0.3, 5), button=button)
+        self.session["clicks"] += 1
 
     def start_working(self):
         logging.info("Started working session")
@@ -181,9 +251,10 @@ class GoodWorker(object):
             int = random.random()
             logging.debug(int)
             if int < 0.5:
-                t = threading.Thread(target=self.type_code)
-                self.threads.append(t)
-                t.start()
+                if not self._typing:
+                    t = threading.Thread(target=self.type_code)
+                    self.threads.append(t)
+                    t.start()
             elif 0.5 < int < 0.9:
                 self.scroll()
             elif int >= 0.9:
