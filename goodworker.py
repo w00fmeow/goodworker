@@ -22,7 +22,6 @@ class GoodWorker(object):
     ACTIONS_TIME_SLEEP_RANGE = (1, 30)
 
     FILE_LIST_GITHUB = (By.CSS_SELECTOR, '.d-inline-block.js-tree-browser-result-path')
-    # TREE_LIST_GITHUB = (By.XPATH, '.js-tree-finder')
 
     def __init__(self):
 
@@ -60,7 +59,11 @@ class GoodWorker(object):
                 assert "telegram" in c
                 assert "projects" in c
                 assert "file_types" in c
+                assert "actions" in c
                 assert c["telegram"]
+                assert c["actions"]
+                assert isinstance(c["actions"], list)
+                assert len(c["actions"]) > 1
                 assert c["file_types"]
                 assert c["projects"]
                 assert "chat_id" in c["telegram"]
@@ -165,21 +168,21 @@ class GoodWorker(object):
 
         # multiple minutes
         elif 60 < total_sec < 60*60:
-            s = str(total_sec) + ' minutes'
+            s = str(total_sec*60) + ' minutes'
 
         # one hour
         elif total_sec == 60*60:
             s = '1 hour'
         # multiple hours
         elif 60*60 < total_sec < 60*60*24:
-            s = str(total_sec) + ' hours'
+            s = str(total_sec*60*60) + ' hours'
         # one day
         elif total_sec == 60*60*24:
             s = '1 day'
         # multiple days
         elif 60*60*24 < total_sec:
-            s = str(total_sec) + ' days'
-            
+            s = str(total_sec*60*60*24) + ' days'
+
         return s
 
     def run(self):
@@ -242,23 +245,32 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
         else:
             logging.debug("Right click")
             button = 'right'
-        pyautogui.click(x=random.randint(1, self.SCREEN_WIDTH), y=random.randint(1, self.SCREEN_HEIGHT), clicks=random.randint(1,3), interval=random.uniform(0.3, 5), button=button)
+        pyautogui.click(x=random.randint(int(self.SCREEN_WIDTH*0.17), self.SCREEN_WIDTH-int(self.SCREEN_WIDTH*0.17)), y=random.randint(self.SCREEN_HEIGHT-int(self.SCREEN_HEIGHT*0.8), int(self.SCREEN_HEIGHT*0.3)), clicks=random.randint(1,3), interval=random.uniform(0.3, 5), button=button)
         self.session["clicks"] += 1
 
     def start_working(self):
         logging.info("Started working session")
         while self.active:
-            int = random.random()
-            logging.debug(int)
-            if int < 0.5:
-                if not self._typing:
-                    t = threading.Thread(target=self.type_code)
-                    self.threads.append(t)
-                    t.start()
-            elif 0.5 < int < 0.9:
-                self.scroll()
-            elif int >= 0.9:
-                self.click()
+            n = random.random()
+            for action_obj in self.config["actions"]:
+                for k, v in enumm.items():
+                    if n < v:
+                        if k == "type":
+                            if not self._typing:
+                                t = threading.Thread(target=self.type_code)
+                                self.threads.append(t)
+                                t.start()
+                        elif k == 'click':
+                            self.click()
+                        elif k == 'scroll':
+                            self.scroll()
+            #         print(k, v)
+            # if n < 0.5:
+            #
+            # elif 0.5 < n < 0.9:
+            #     self.scroll()
+            # elif n >= 0.9:
+            #     self.click()
 
             time.sleep(random.randint(*self.ACTIONS_TIME_SLEEP_RANGE))
 
