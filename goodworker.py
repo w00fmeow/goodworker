@@ -3,10 +3,10 @@ import logging, os, sys, keyboard, pyautogui, json, time, random, threading, req
 from datetime import datetime, timedelta
 from notifier import Notifier
 from bs4 import BeautifulSoup
-import selenium.webdriver as webdriver
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.by import By
+# import selenium.webdriver as webdriver
+# from selenium.webdriver.firefox.options import Options
+# from selenium.webdriver.common.keys import Keys
+# from selenium.webdriver.common.by import By
 
 FORMAT = '%(levelname)s:    %(asctime)s - %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format=FORMAT)
@@ -19,16 +19,16 @@ class GoodWorker(object):
     HOTKEY_TERMINATE_PROGRAM = 'ctrl + shift + k + l'
     SCREEN_WIDTH, SCREEN_HEIGHT = pyautogui.size()
 
-    ACTIONS_TIME_SLEEP_RANGE = (1, 30)
+    ACTIONS_TIME_SLEEP_RANGE = (1, 25)
 
     FILE_LIST_GITHUB = (By.CSS_SELECTOR, '.d-inline-block.js-tree-browser-result-path')
 
     def __init__(self):
 
-        options = Options()
-        options.headless = True
-        self.browser = webdriver.Firefox(options=options)
-        self.browser.implicitly_wait(10)
+        # options = Options()
+        # options.headless = True
+        # self.browser = webdriver.Firefox(options=options)
+        # self.browser.implicitly_wait(10)
 
         self._running = True
         self.active = False
@@ -45,9 +45,6 @@ class GoodWorker(object):
 
         t = threading.Thread(target=self.run)
         self.threads.append(t)
-
-        # t = threading.Thread(target=self.load_code)
-        # self.threads.append(t)
 
         for t in self.threads:
             t.start()
@@ -72,7 +69,7 @@ class GoodWorker(object):
                 return c
         except Exception as e:
             logging.error("There was an error loading config file")
-            self.browser.quit()
+            # self.browser.quit()
             sys.exit()
 
     def load_emojies(self):
@@ -104,10 +101,13 @@ class GoodWorker(object):
             for a in actions:
                 a["frequency"] = a["frequency"]*0.01
             logging.debug("Output actions: {}".format(actions))
+            if "type" in actions:
+                t = threading.Thread(target=self.load_code)
+                self.threads.append(t)
             return actions
         except Exception as e:
             logging.error("There was an error loading actions from file")
-            self.browser.quit()
+            # self.browser.quit()
             sys.exit()
 
     def load_code(self):
