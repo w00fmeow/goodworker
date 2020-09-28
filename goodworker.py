@@ -35,6 +35,7 @@ class GoodWorker(object):
         self._typing = False
 
         self.config = self.load_config()
+        self.actions = self.configure_actions(self.config["actions"])
         self.emojies = self.load_emojies()
         self.code_archive = self.load_backup_code()
 
@@ -45,8 +46,8 @@ class GoodWorker(object):
         t = threading.Thread(target=self.run)
         self.threads.append(t)
 
-        t = threading.Thread(target=self.load_code)
-        self.threads.append(t)
+        # t = threading.Thread(target=self.load_code)
+        # self.threads.append(t)
 
         for t in self.threads:
             t.start()
@@ -93,6 +94,21 @@ class GoodWorker(object):
         except Exception as e:
             logging.error(e)
             return []
+
+    def configure_actions(self, actions):
+        try:
+            logging.debug("Raw actions: {}".format(actions))
+            assert actions
+            assert all(k in a for a in actions for k in ("name", "frequency"))
+            assert sum(x["frequency"] for x in actions) == 100
+            for a in actions:
+                a["frequency"] = a["frequency"]*0.01
+            logging.debug("Output actions: {}".format(actions))
+            return actions
+        except Exception as e:
+            logging.error("There was an error loading actions from file")
+            self.browser.quit()
+            sys.exit()
 
     def load_code(self):
         for project in self.config["projects"]:
@@ -168,20 +184,24 @@ class GoodWorker(object):
 
         # multiple minutes
         elif 60 < total_sec < 60*60:
-            s = str(total_sec*60) + ' minutes'
+            s = str(round(total_sec/60, 2)) + ' minutes'
 
         # one hour
         elif total_sec == 60*60:
             s = '1 hour'
+
         # multiple hours
         elif 60*60 < total_sec < 60*60*24:
-            s = str(total_sec*60*60) + ' hours'
+            s = str(round(total_sec/60/60, 2)) + ' minutes'
+
         # one day
         elif total_sec == 60*60*24:
             s = '1 day'
+
         # multiple days
         elif 60*60*24 < total_sec:
-            s = str(total_sec*60*60*24) + ' days'
+            # s = str(total_sec/60/60/24) + ' days'
+            s = str(round(total_sec/60/60/24, 2)) + ' minutes'
 
         return s
 
@@ -225,9 +245,11 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
     def type_code(self):
         logging.info("Typing some code")
         self._typing = True
-        s = self.get_random_code(max_length=random.randint(5,450))
+        s = self.get_random_code(max_length=random.randint(2,6))
         keyboard.press_and_release('escape')
         for char in s:
+            if not self.active:
+                break
             self.send_keys(char)
             time.sleep(random.uniform(0.0067, 0.6))
         self._typing = False
@@ -249,28 +271,35 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
         self.session["clicks"] += 1
 
     def start_working(self):
+        def execute_action(action_name):
+            if action_name == "type":
+                if not self._typing:
+                    t = threading.Thread(target=self.type_code)
+                    self.threads.append(t)
+                    t.start()
+            elif action_name == 'click':
+                self.click()
+            elif action_name == 'scroll':
+                self.scroll()
+
         logging.info("Started working session")
         while self.active:
             n = random.random()
-            for action_obj in self.config["actions"]:
-                for k, v in enumm.items():
-                    if n < v:
-                        if k == "type":
-                            if not self._typing:
-                                t = threading.Thread(target=self.type_code)
-                                self.threads.append(t)
-                                t.start()
-                        elif k == 'click':
-                            self.click()
-                        elif k == 'scroll':
-                            self.scroll()
-            #         print(k, v)
-            # if n < 0.5:
-            #
-            # elif 0.5 < n < 0.9:
-            #     self.scroll()
-            # elif n >= 0.9:
-            #     self.click()
+            logging.debug("N: {}".format(n))
+            if len(self.actions) == 1:
+                execute_action(self.actions[0]["name"])
+            elif len(self.actions) == 2:
+                if n <= self.actions[0]["frequency"]:
+                    execute_action(self.actions[0]["name"])
+                else:
+                    execute_action(self.actions[1]["name"])
+            elif len(self.actions) == 3:
+                if n <= self.actions[0]["frequency"]:
+                    execute_action(self.actions[0]["name"])
+                elif self.actions[0]["frequency"] <= n <= self.actions[0]["frequency"] + self.actions[1]["frequency"]:
+                    execute_action(self.actions[1]["name"])
+                else:
+                    execute_action(self.actions[2]["name"])
 
             time.sleep(random.randint(*self.ACTIONS_TIME_SLEEP_RANGE))
 
