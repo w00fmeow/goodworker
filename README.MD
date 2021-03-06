@@ -48,10 +48,13 @@ File with name `config` with no extension should be placed in project folder wit
     -   `token`:
         -   description: can be obtained in @BotFather
 -   actions (required at least one):
+
     -   format: Array of objects `{name: action_name, frequency: int}`
     -   supported actions are: `scroll`, `click`
     -   all specified actions should have total frequency of 100 (`int`)
+
         _Example: scroll 30 and click 70. 70% clicks and 30% scroll_
+
 -   notifications_every:
 
     -   format: `int`
