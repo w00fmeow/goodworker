@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-import logging, os, sys, keyboard, pyautogui, json, time, random, threading, requests, re
+import logging
+import os
+import sys
+import keyboard
+import pyautogui
+import json
+import time
+import random
+import threading
+import requests
+import re
 from datetime import datetime, timedelta
 from notifier import Notifier
 from bs4 import BeautifulSoup
@@ -12,6 +22,7 @@ FORMAT = '%(levelname)s:    %(asctime)s - %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format=FORMAT)
 
 pyautogui.FAILSAFE = True
+
 
 class GoodWorker(object):
 
@@ -41,7 +52,12 @@ class GoodWorker(object):
         self.emojies = self.load_emojies()
         self.code_archive = self.load_code()
 
-        self.notifier = Notifier(chat_id=self.config["telegram"]["chat_id"], token=self.config["telegram"]["token"])
+        self.notifier = None
+        try:
+            self.notifier = Notifier(
+                chat_id=self.config["telegram"]["chat_id"], token=self.config["telegram"]["token"])
+        except Exception as e:
+            logging.error(e)
         self.session = None
         self.threads = []
 
@@ -56,21 +72,43 @@ class GoodWorker(object):
             with open('config', 'r') as f:
                 c = json.loads(f.read())
                 assert c
-                assert "telegram" in c
                 # assert "projects" in c
                 # assert "file_types" in c
                 assert "actions" in c
-                assert c["telegram"]
-                assert c["actions"]
                 assert isinstance(c["actions"], list)
                 assert len(c["actions"]) >= 1
                 # assert c["file_types"]
                 # assert c["projects"]
-                assert "chat_id" in c["telegram"]
-                assert "token" in c["telegram"]
+                if "hotkeys" in c:
+                    if "status_change" in c["hotkeys"] and c["hotkeys"]["status_change"]:
+                        try:
+                            keyboard.parse_hotkey(
+                                c["hotkeys"]["status_change"])
+                            self.HOTKEY_STATUS_CHANGE = c["hotkeys"]["status_change"]
+                        except Exception as e:
+                            logging.error(e)
+                    if "status_change" in c["hotkeys"] and c["hotkeys"]["terminate"]:
+                        try:
+                            keyboard.parse_hotkey(c["hotkeys"]["terminate"])
+                            self.HOTKEY_TERMINATE_PROGRAM = c["hotkeys"]["terminate"]
+                        except Exception as e:
+                            logging.error(e)
+
+                if 'telegram' in c:
+                    try:
+                        assert "chat_id" in c["telegram"]
+                        assert "token" in c["telegram"]
+                        assert c["telegram"]
+                        assert c["actions"]
+                    except Exception as e:
+                        c.pop('telegram', None)
+                        logging.error(e)
+                        logging.error(
+                            'Incorrect Telegram config. Not using bot notifications')
                 if "notifications_every" in c:
                     try:
-                        c["notifications_every"] = int(c["notifications_every"])
+                        c["notifications_every"] = int(
+                            c["notifications_every"])
                         if not c["notifications_every"] or c["notifications_every"] < 0:
                             c.pop("notifications_every")
                     except Exception as e:
@@ -82,6 +120,7 @@ class GoodWorker(object):
 
                 return c
         except Exception as e:
+
             logging.error("There was an error loading config file")
             # self.browser.quit()
             sys.exit()
@@ -147,19 +186,21 @@ class GoodWorker(object):
     #     return l
 
     def load_raw_file(self, project, file_name):
-        url = "https://raw.githubusercontent.com/{}/master/{}".format(project, file_name)
+        url = "https://raw.githubusercontent.com/{}/master/{}".format(
+            project, file_name)
         r = requests.get(url)
         if r.status_code == 200:
             return r.text
 
     def make_soup(self, html):
-        return BeautifulSoup(html,'html.parser')
+        return BeautifulSoup(html, 'html.parser')
 
     def status_change(self, force_quit=False):
         if not self.active and not force_quit:
             self.active = True
             self.session = self.get_empty_session()
-            self.notifier.send_message()
+            if self.notifier:
+                self.notifier.send_message()
             t = threading.Thread(target=self.start_working)
             self.threads.append(t)
             t.start()
@@ -168,8 +209,11 @@ class GoodWorker(object):
                 self.active = False
                 self.session["stopped_at"] = datetime.now()
                 logging.debug(self.session)
-                self.session["active_time"] = self.calculate_active_time(start=self.session["started_at"], stop=self.session["stopped_at"])
-                self.notifier.send_message(action='stop', session=self.session)
+                self.session["active_time"] = self.calculate_active_time(
+                    start=self.session["started_at"], stop=self.session["stopped_at"])
+                if self.notifier:
+                    self.notifier.send_message(
+                        action='stop', session=self.session)
 
     def get_empty_session(self):
         return {
@@ -184,6 +228,7 @@ class GoodWorker(object):
 
     def calculate_active_time(self, start, stop):
         total_sec = int((stop - start).total_seconds())
+        s = str(total_sec)
         # one second
         if total_sec == 1:
             s = '1 seconds'
@@ -228,20 +273,26 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
 
 
         """)
-        self.notifier.send_message("GoodWorker is working hard")
-        time.sleep(0.7)
-        self.notifier.send_message("To activate or terminate session press {} at the same time".format(self.HOTKEY_STATUS_CHANGE))
-        time.sleep(0.9)
-        self.notifier.send_message("To force quit and kill proccess press {}".format(self.HOTKEY_TERMINATE_PROGRAM))
-        keyboard.add_hotkey(self.HOTKEY_STATUS_CHANGE, lambda: self.status_change())
+        if self.notifier:
+            self.notifier.send_message("GoodWorker is working hard")
+            time.sleep(0.7)
+            self.notifier.send_message(
+                "To activate or terminate session press:\n`{}`\nat the same time".format(self.HOTKEY_STATUS_CHANGE))
+            time.sleep(0.9)
+            self.notifier.send_message("To force quit and kill proccess press:\n`{}`".format(
+                self.HOTKEY_TERMINATE_PROGRAM))
+        keyboard.add_hotkey(self.HOTKEY_STATUS_CHANGE,
+                            lambda: self.status_change())
         keyboard.add_hotkey(self.HOTKEY_TERMINATE_PROGRAM, lambda: self.exit())
         while self._running:
             time.sleep(5)
 
     def exit(self):
         self.status_change(force_quit=True)
-        self.notifier.send_message("GoodWorker terminated")
-        self.notifier.send_message("Bye\n{}".format(random.choice(self.emojies)))
+        if self.notifier:
+            self.notifier.send_message("GoodWorker terminated")
+            self.notifier.send_message(
+                "Bye\n{}".format(random.choice(self.emojies)))
         self._running = False
         # self.browser.quit()
         sys.exit()
@@ -259,7 +310,7 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
     def type_code(self):
         logging.info("Typing some code")
         self._typing = True
-        s = self.get_random_code(max_length=random.randint(2,6))
+        s = self.get_random_code(max_length=random.randint(2, 6))
         keyboard.press_and_release('escape')
         for char in s:
             if not self.active:
@@ -270,13 +321,14 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
 
     def scroll(self):
         logging.info("Scrolling")
-        for _ in range(0, random.randint(1,5)):
-            pyautogui.scroll(random.randint(-25,-5), x=random.randint(1, self.SCREEN_WIDTH), y=random.randint(1, self.SCREEN_HEIGHT))
+        for _ in range(0, random.randint(1, 5)):
+            pyautogui.scroll(random.randint(-25, -5), x=random.randint(1,
+                                                                       self.SCREEN_WIDTH), y=random.randint(1, self.SCREEN_HEIGHT))
             self.session["scrolls"] += 1
             time.sleep(random.uniform(0.1, 1.9))
 
-        for _ in range(0, random.randint(1,2)):
-            pyautogui.scroll(random.randint(5,20))
+        for _ in range(0, random.randint(1, 2)):
+            pyautogui.scroll(random.randint(5, 20))
             self.session["scrolls"] += 1
             time.sleep(random.uniform(0.1, 1.3))
 
@@ -290,11 +342,14 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
         logging.debug("Left click")
         button = 'left'
         for _ in range(0, random.randint(1, 2)):
-            x = random.randint(int(self.SCREEN_WIDTH*0.17), self.SCREEN_WIDTH-int(self.SCREEN_WIDTH*0.17))
-            y = random.randint(self.SCREEN_HEIGHT-int(self.SCREEN_HEIGHT*0.8), int(self.SCREEN_HEIGHT*0.3))
+            x = random.randint(int(self.SCREEN_WIDTH*0.17),
+                               self.SCREEN_WIDTH-int(self.SCREEN_WIDTH*0.17))
+            y = random.randint(
+                self.SCREEN_HEIGHT-int(self.SCREEN_HEIGHT*0.8), int(self.SCREEN_HEIGHT*0.3))
             pyautogui.moveTo(x, y, random.uniform(0.3, 0.9))
-            c = random.randint(1,2)
-            pyautogui.click(x=x, y=y, clicks=c, interval=random.uniform(0.3, 0.7), button=button)
+            c = random.randint(1, 2)
+            pyautogui.click(x=x, y=y, clicks=c,
+                            interval=random.uniform(0.3, 0.7), button=button)
             self.session["clicks"] += c
 
     def start_working(self):
@@ -332,8 +387,11 @@ ____ ____ ____ ___  _ _ _ ____ ____ _  _ ____ ____
 
             if diff > timedelta(minutes=self.NOTIFICATION_TIME):
                 self.session["last_notification"] = datetime.now()
-                self.notifier.send_message("Session is active already {}".format(self.calculate_active_time(start=self.session["started_at"], stop=datetime.now())))
+                if self.notifier:
+                    self.notifier.send_message("Session is active already {}".format(
+                        self.calculate_active_time(start=self.session["started_at"], stop=datetime.now())))
 
             time.sleep(random.randint(*self.ACTIONS_TIME_SLEEP_RANGE))
+
 
 gd = GoodWorker()

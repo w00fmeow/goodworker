@@ -1,3 +1,4 @@
 config
 emoji_scrape.py
 /__pycache__
+*.zip
